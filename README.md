@@ -1,77 +1,42 @@
-# nse-collector
+# Indian option data and pricing study
 
-Free-data collection layer for the personal Indian F&O prediction bot.
-Pulls the daily NSE F&O bhavcopy (UDiFF format), normalizes it to parquet,
-and snapshots the NIFTY/BANKNIFTY option chains intraday.
+Collect NSE option data, fit volatility surfaces and evaluate pricing and forecasting baselines.
 
-## Layout
+**Offline checks verify Black-76 put–call parity and implied-volatility round trips.** TODO: saved market-data forecast accuracy; no predictive-performance number has been validated.
 
-```
-config.py            paths, URLs, headers (override root via NSE_DATA_ROOT)
-fetch_bhavcopy.py    daily EOD download + backfill mode
-normalize.py         UDiFF zip -> long-format parquet (one file per day)
-snapshot_chain.py    intraday option-chain JSON snapshots (market-hours guarded)
-```
+![Black-76 model diagnostic, not a forecast](assets/results.png)
 
-Data lands under `~/nse-data/` by default:
+## Quick start
 
-```
-raw/bhavcopy/2026/BhavCopy_..._20260717_F_0000.csv.zip   # originals, keep forever
-raw/chain_snapshots/2026-07-17/NIFTY_093215.json.gz
-parquet/fo_eod/year=2026/2026-07-17.parquet
-```
-
-## Install
+From the repository root, without market downloads:
 
 ```bash
-git clone https://github.com/VChahar1/Indian-Option-price-predictor.git
-cd Indian-Option-price-predictor
 python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python fetch_bhavcopy.py --help
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
 ```
 
-This snapshot does not include `systemd/` service or timer files. Run the collectors manually or configure your own scheduler; copying units from that missing directory will not work.
+`python fetch_bhavcopy.py --help` describes daily and backfill downloads. `snapshot_chain.py` collects intraday chains. `NSE_DATA_ROOT` overrides the default local data directory. Provider redistribution permission has not been established, so no NSE sample is bundled. `requirements-neural.txt` adds optional PyTorch and Yahoo Finance tools; the core setup does not need them.
 
-The pricing and surface scripts use the scientific Python dependencies in `requirements.txt`. The neural forecast script additionally needs a suitable PyTorch installation (`python -m pip install torch`); the optional VIX overlay uses `yfinance` when available.
+## Method
 
-No automated test suite is included. The file `sanity_checks.py` is a data-dependent surface diagnostic, rather than a unit-test runner: build local surface data before running it. The setup cleanup checked command help, Black-76 pricing parity and a price-to-implied-volatility round trip; it did not validate forecast accuracy or download the market-data history.
+- Download UDiFF bhavcopy archives and normalize them into Parquet.
+- Save option-chain snapshots during the configured weekday market-hours window.
+- Estimate forwards from put–call parity and solve Black-76 implied volatility.
+- Fit SVI volatility surfaces and check shape constraints.
+- Build forecasting and option-price backtests from locally generated surfaces.
+- Keep raw archives and derived results under the configured data root.
 
-## Backfill
+## Results
 
-The downloader uses the UDiFF filename template in `config.py`; older archive formats may require a different template.
+[Diagnostic inputs and outputs](results/pricing_diagnostic.json) contain actual Black-76 calculations on explicitly synthetic inputs. The chart compares call and put model prices across strikes; it does not use market observations or measure forecast skill. Run `python scripts/pricing_diagnostic.py` to reproduce it.
 
-```bash
-python3 fetch_bhavcopy.py --backfill 2024-07-08 $(date +%F)
-```
+## What didn't work
 
-Safe to interrupt and re-run: already-downloaded days are skipped, 404s
-(holidays/weekends) are ignored, and there is a 2 s politeness delay between
-requests.
+The prior setup referred to missing scheduler files and omitted dependencies; those instructions are repaired. Systemd units remain absent. The snapshot clock excludes weekends but has no exchange-holiday calendar. Downloads can fail when NSE endpoints or archive schemas change. Forecast quality and the neural model have not been validated in this cleanup.
 
-## Querying
+## Tests, structure and licence
 
-```python
-import duckdb
-con = duckdb.connect()
-con.sql("""
-    SELECT trade_date, expiry, strike, opt_type, settle, oi
-    FROM read_parquet('~/nse-data/parquet/fo_eod/*/*.parquet')
-    WHERE symbol = 'NIFTY' AND instrument = 'IDO'
-      AND volume > 0
-    ORDER BY trade_date, expiry, strike
-""").df()
-```
+[![Tests](https://github.com/VChahar1/Indian-Option-price-predictor/actions/workflows/tests.yml/badge.svg)](https://github.com/VChahar1/Indian-Option-price-predictor/actions/workflows/tests.yml)
 
-## Notes and known sharp edges
-
-- **Chain snapshots are best-effort.** NSE changes its anti-bot behavior
-  without notice. If snapshots start failing (check the collector output), the usual
-  fixes are a newer User-Agent string in `config.py` or a longer warmup.
-  The EOD bhavcopy path is independent and much more stable.
-- `snapshot_chain.py` checks weekdays and the configured 09:15–15:30 IST time window. It does not maintain an exchange-holiday calendar. Scheduling is left to the caller; timer units are not included.
-- Raw files are never modified. If the schema changes, delete
-  `parquet/` and re-run `normalize.py` over the raw zips.
-- If NSE tweaks UDiFF column names, `normalize.py` warns about missing
-  columns instead of crashing; check stderr in journalctl occasionally.
+`tests/` checks pricing identities without network access. Root scripts handle collection, normalization, surfaces and forecasts. `sanity_checks.py` needs local surface data; it is separate from unit tests. `scripts/` generates the diagnostic and `results/` stores its evidence. Code: [MIT](LICENSE); market data retain their provider's terms.

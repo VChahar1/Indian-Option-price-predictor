@@ -47,6 +47,7 @@ def implied_vol(
 
 
 def bs_vega(F: float, K: float, T: float, sigma: float, D: float) -> float:
+    """Return discounted forward-option vega, or zero at expiry."""
     if T <= 0 or sigma <= 0:
         return 0.0
     v = sigma * np.sqrt(T)
