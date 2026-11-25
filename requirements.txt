@@ -1,3 +1,7 @@
 requests
 pandas
 pyarrow
+numpy
+scipy
+matplotlib
+duckdb

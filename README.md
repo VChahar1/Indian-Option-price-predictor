@@ -11,7 +11,6 @@ config.py            paths, URLs, headers (override root via NSE_DATA_ROOT)
 fetch_bhavcopy.py    daily EOD download + backfill mode
 normalize.py         UDiFF zip -> long-format parquet (one file per day)
 snapshot_chain.py    intraday option-chain JSON snapshots (market-hours guarded)
-systemd/             user units: 2 services + 2 timers
 ```
 
 Data lands under `~/nse-data/` by default:
@@ -25,30 +24,23 @@ parquet/fo_eod/year=2026/2026-07-17.parquet
 ## Install
 
 ```bash
-mkdir -p ~/nse-collector && cp -r <extracted files> ~/nse-collector/
-pip install --user -r ~/nse-collector/requirements.txt
-
-# systemd user units
-mkdir -p ~/.config/systemd/user
-cp ~/nse-collector/systemd/* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now nse-bhavcopy.timer nse-chain.timer
-
-# let user timers run without an active login session
-loginctl enable-linger $USER
+git clone https://github.com/VChahar1/Indian-Option-price-predictor.git
+cd Indian-Option-price-predictor
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python fetch_bhavcopy.py --help
 ```
 
-Check status / logs:
+This snapshot does not include `systemd/` service or timer files. Run the collectors manually or configure your own scheduler; copying units from that missing directory will not work.
 
-```bash
-systemctl --user list-timers
-journalctl --user -u nse-bhavcopy.service -e
-journalctl --user -u nse-chain.service -e
-```
+The pricing and surface scripts use the scientific Python dependencies in `requirements.txt`. The neural forecast script additionally needs a suitable PyTorch installation (`python -m pip install torch`); the optional VIX overlay uses `yfinance` when available.
+
+No automated test suite is included. The file `sanity_checks.py` is a data-dependent surface diagnostic, rather than a unit-test runner: build local surface data before running it. The setup cleanup checked command help, Black-76 pricing parity and a price-to-implied-volatility round trip; it did not validate forecast accuracy or download the market-data history.
 
 ## Backfill
 
-The UDiFF format starts 2024-07-08; earlier files use the old naming scheme.
+The downloader uses the UDiFF filename template in `config.py`; older archive formats may require a different template.
 
 ```bash
 python3 fetch_bhavcopy.py --backfill 2024-07-08 $(date +%F)
@@ -75,14 +67,10 @@ con.sql("""
 ## Notes and known sharp edges
 
 - **Chain snapshots are best-effort.** NSE changes its anti-bot behavior
-  without notice. If snapshots start failing (check journalctl), the usual
+  without notice. If snapshots start failing (check the collector output), the usual
   fixes are a newer User-Agent string in `config.py` or a longer warmup.
   The EOD bhavcopy path is independent and much more stable.
-- **Timers are DST-proof by design**: the chain timer fires over a wide
-  local-time window and `snapshot_chain.py` itself checks 09:15–15:30 IST,
-  exiting instantly when closed.
-- **The bhavcopy timer fires at 16:00 and 20:00** local time; publication
-  time varies, and the fetch is idempotent so the second run is a free retry.
+- `snapshot_chain.py` checks weekdays and the configured 09:15–15:30 IST time window. It does not maintain an exchange-holiday calendar. Scheduling is left to the caller; timer units are not included.
 - Raw files are never modified. If the schema changes, delete
   `parquet/` and re-run `normalize.py` over the raw zips.
 - If NSE tweaks UDiFF column names, `normalize.py` warns about missing
