@@ -56,6 +56,7 @@ def fetch_chain(session: requests.Session, symbol: str) -> dict | None:
 
 
 def main() -> None:
+    """Collect option-chain snapshots within the configured market-hours window."""
     now = dt.datetime.now(IST)
     if not market_is_open(now):
         return

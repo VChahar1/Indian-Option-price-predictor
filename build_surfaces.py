@@ -209,6 +209,7 @@ def run_date(path: Path, symbol: str) -> None:
 
 
 def main() -> None:
+    """Fit volatility surfaces for the requested local market-data files."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
     ap.add_argument("--date", help="YYYY-MM-DD")

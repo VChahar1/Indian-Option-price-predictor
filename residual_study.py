@@ -177,6 +177,7 @@ def run(symbol: str, horizons: list[int]) -> None:
 
 
 def main() -> None:
+    """Report residual-predictability diagnostics for the selected horizons."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
     ap.add_argument("--horizons", nargs="+", type=int, default=[1, 2, 5, 10])

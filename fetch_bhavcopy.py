@@ -67,6 +67,7 @@ def normalize_if_needed(zip_path, day: dt.date) -> None:
 
 
 def main() -> None:
+    """Download the requested daily archives and normalize available files."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="YYYY-MM-DD (default: today in IST)")
     ap.add_argument(

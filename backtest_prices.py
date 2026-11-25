@@ -243,6 +243,7 @@ def report(res: pd.DataFrame, symbol: str, horizon: int) -> None:
 
 
 def main() -> None:
+    """Run the configured option-price forecast backtest on local data."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
     ap.add_argument("--horizon", type=int, default=5)

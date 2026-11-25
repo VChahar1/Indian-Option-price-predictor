@@ -47,6 +47,7 @@ def greeks(F, K, T, sig, D, is_call):
 
 
 def main() -> None:
+    """Print pricing diagnostics for the latest requested local surface."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
     ap.add_argument("--date", help="YYYY-MM-DD (default: latest on disk)")

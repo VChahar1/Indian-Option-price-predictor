@@ -59,6 +59,7 @@ def try_fetch_vix(start, end) -> pd.Series | None:
 
 
 def main() -> None:
+    """Check local volatility surfaces and their available reference series."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
     args = ap.parse_args()

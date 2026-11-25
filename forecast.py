@@ -208,6 +208,7 @@ def report(res: pd.DataFrame, target: str, horizon: int) -> pd.DataFrame:
 
 
 def main() -> None:
+    """Evaluate the selected forecasting baselines on local surface data."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
     ap.add_argument("--horizon", type=int, default=5)

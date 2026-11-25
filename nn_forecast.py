@@ -190,6 +190,7 @@ def walk_forward_nn(
 
 
 def main() -> None:
+    """Train and evaluate the neural forecast on the requested local dataset."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="NIFTY")
     ap.add_argument("--horizon", type=int, default=5)
