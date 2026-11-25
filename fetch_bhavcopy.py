@@ -1,15 +1,5 @@
-"""Download the NSE F&O UDiFF bhavcopy and normalize it to parquet.
+"Download the NSE F&O UDiFF bhavcopy and normalize it to parquet."
 
-Usage:
-    python3 fetch_bhavcopy.py                       # today's file (IST)
-    python3 fetch_bhavcopy.py --date 2026-07-17     # a specific date
-    python3 fetch_bhavcopy.py --backfill 2024-07-08 2026-07-17
-
-404 responses are treated as "no trading that day / not yet published" and
-skipped quietly, so it's safe to run daily and over weekends/holidays.
-Already-downloaded days are skipped (idempotent), so a backfill can be
-resumed after an interruption by re-running the same command.
-"""
 from __future__ import annotations
 
 import argparse
@@ -20,8 +10,14 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from config import (BACKFILL_SLEEP, BHAVCOPY_URL, HEADERS, RAW_BHAVCOPY_DIR,
-                    REQUEST_TIMEOUT, ensure_dirs)
+from config import (
+    BACKFILL_SLEEP,
+    BHAVCOPY_URL,
+    HEADERS,
+    RAW_BHAVCOPY_DIR,
+    REQUEST_TIMEOUT,
+    ensure_dirs,
+)
 from normalize import normalize_zip
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -29,7 +25,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 def fetch_day(session: requests.Session, day: dt.date) -> bool:
     """Fetch one day's bhavcopy. Returns True if a file was obtained."""
-    if day.weekday() >= 5:  # Sat/Sun
+    if day.weekday() >= 5:
         return False
     dest_dir = RAW_BHAVCOPY_DIR / str(day.year)
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -51,13 +47,12 @@ def fetch_day(session: requests.Session, day: dt.date) -> bool:
         if r.status_code == 404:
             print(f"[fetch] {day}: 404 (holiday or not yet published)")
             return False
-        if r.ok and r.content[:2] == b"PK":  # sanity: it's really a zip
+        if r.ok and r.content[:2] == b"PK":
             dest.write_bytes(r.content)
-            print(f"[fetch] {day}: saved {dest.name} ({len(r.content)//1024} KB)")
+            print(f"[fetch] {day}: saved {dest.name} ({len(r.content) // 1024} KB)")
             normalize_zip(dest)
             return True
-        print(f"[fetch] {day} attempt {attempt}: HTTP {r.status_code}",
-              file=sys.stderr)
+        print(f"[fetch] {day} attempt {attempt}: HTTP {r.status_code}", file=sys.stderr)
         time.sleep(5 * attempt)
     print(f"[fetch] {day}: giving up after 3 attempts", file=sys.stderr)
     return False
@@ -65,6 +60,7 @@ def fetch_day(session: requests.Session, day: dt.date) -> bool:
 
 def normalize_if_needed(zip_path, day: dt.date) -> None:
     from config import PARQUET_EOD_DIR
+
     pq = PARQUET_EOD_DIR / f"year={day.year}" / f"{day.isoformat()}.parquet"
     if not pq.exists():
         normalize_zip(zip_path)
@@ -73,8 +69,12 @@ def normalize_if_needed(zip_path, day: dt.date) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="YYYY-MM-DD (default: today in IST)")
-    ap.add_argument("--backfill", nargs=2, metavar=("START", "END"),
-                    help="inclusive YYYY-MM-DD range, fetched oldest-first")
+    ap.add_argument(
+        "--backfill",
+        nargs=2,
+        metavar=("START", "END"),
+        help="inclusive YYYY-MM-DD range, fetched oldest-first",
+    )
     args = ap.parse_args()
 
     ensure_dirs()
@@ -91,8 +91,11 @@ def main() -> None:
             day += dt.timedelta(days=1)
         print(f"[fetch] backfill done: {got} trading days collected")
     else:
-        day = (dt.date.fromisoformat(args.date) if args.date
-               else dt.datetime.now(IST).date())
+        day = (
+            dt.date.fromisoformat(args.date)
+            if args.date
+            else dt.datetime.now(IST).date()
+        )
         fetch_day(session, day)
 
 

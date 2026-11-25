@@ -1,25 +1,5 @@
-"""Neural-net forecaster, evaluated head-to-head against the baselines.
+"Neural-net forecaster, evaluated head-to-head against the baselines."
 
-Same walk-forward protocol as forecast.py (expanding window, periodic refit,
-strict leakage control), same targets, same sample — so the comparison table
-at the end is a fair fight. Adds surface-derived features the linear
-baselines don't see:
-
-  rho_front  : front-expiry SVI skew parameter
-  term_slope : ATM total-variance slope between ~1M and the front expiry
-  vrp        : iv30 minus trailing horizon RV (variance-risk-premium proxy)
-  ret_5      : trailing 5-day return (leverage effect)
-
-Model: small MLP (1 hidden layer) predicting log(target/persistence-anchor)
-— a stationary residual target, so predicting zero recovers persistence and
-regime shifts cannot cause unbounded level extrapolation. Full-batch Adam,
-chronological 85/15 early-stopping split, 3-seed ensemble averaged.
-Features standardized with training-window statistics only.
-
-Usage:
-  python3 nn_forecast.py --symbol BANKNIFTY --horizon 5
-  python3 nn_forecast.py --symbol NIFTY --horizon 5 --target rv_fwd
-"""
 from __future__ import annotations
 
 import argparse
@@ -32,13 +12,18 @@ import torch.nn as nn
 
 from build_surfaces import SURF_DIR
 from config import DATA_ROOT
-from forecast import (build_panel, dm_test, features_for, ols, predict,
-                      qlike, walk_forward)
+from forecast import (
+    build_panel,
+    dm_test,
+    features_for,
+    ols,
+    predict,
+    qlike,
+    walk_forward,
+)
 
 FRONT_MIN_DAYS = 5
 
-
-# ---------------------------------------------------------------- features --
 
 def load_surface_features(symbol: str) -> pd.DataFrame:
     files = sorted(SURF_DIR.glob(f"svi_params/year=*/*_{symbol}.parquet"))
@@ -52,7 +37,7 @@ def load_surface_features(symbol: str) -> pd.DataFrame:
             continue
         front = g.iloc[0]
         feat = {"rho_front": front["rho"]}
-        # slope of ATM total variance per year between front and ~1M point
+
         cand = g[g["T"] > front["T"] + 3 / 365]
         if not cand.empty:
             nxt = cand.iloc[(cand["T"] * 365 - 30).abs().argmin()]
@@ -74,8 +59,17 @@ def build_nn_panel(symbol: str, horizon: int) -> pd.DataFrame:
     return panel
 
 
-NN_FEATURES = ["rv_d", "rv_w", "rv_m", "rv_h", "iv30",
-               "rho_front", "term_slope", "vrp", "ret_5"]
+NN_FEATURES = [
+    "rv_d",
+    "rv_w",
+    "rv_m",
+    "rv_h",
+    "iv30",
+    "rho_front",
+    "term_slope",
+    "vrp",
+    "ret_5",
+]
 LOG_FEATURES = {"rv_d", "rv_w", "rv_m", "rv_h", "iv30"}
 
 
@@ -89,13 +83,12 @@ def design_matrix(df: pd.DataFrame) -> np.ndarray:
     return np.column_stack(cols)
 
 
-# ------------------------------------------------------------------- model --
-
 class MLP(nn.Module):
     def __init__(self, d_in: int):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(d_in, 16), nn.ReLU(),
+            nn.Linear(d_in, 16),
+            nn.ReLU(),
             nn.Linear(16, 1),
         )
 
@@ -103,8 +96,9 @@ class MLP(nn.Module):
         return self.net(x).squeeze(-1)
 
 
-def train_one(X: np.ndarray, y: np.ndarray, seed: int,
-              max_epochs: int = 500, patience: int = 30) -> tuple[MLP, np.ndarray, np.ndarray]:
+def train_one(
+    X: np.ndarray, y: np.ndarray, seed: int, max_epochs: int = 500, patience: int = 30
+) -> tuple[MLP, np.ndarray, np.ndarray]:
     """Returns (model, mu, sd) with feature standardization from train stats."""
     torch.manual_seed(seed)
     n_val = max(int(0.15 * len(X)), 10)
@@ -121,9 +115,11 @@ def train_one(X: np.ndarray, y: np.ndarray, seed: int,
     loss_fn = nn.MSELoss()
     best, best_state, bad = np.inf, None, 0
     for _ in range(max_epochs):
-        model.train(); opt.zero_grad()
+        model.train()
+        opt.zero_grad()
         loss = loss_fn(model(Xtr_t), ytr_t)
-        loss.backward(); opt.step()
+        loss.backward()
+        opt.step()
         model.eval()
         with torch.no_grad():
             vl = loss_fn(model(Xva_t), yva_t).item()
@@ -154,19 +150,24 @@ class NNEnsemble:
             for model, mu, sd in self.members:
                 xt = torch.tensor((X - mu) / sd, dtype=torch.float32)
                 preds.append(model(xt).numpy())
-        # bounded log-ratio correction to the persistence anchor
+
         return np.clip(np.mean(preds, axis=0), -1.5, 1.5)
 
 
-# ------------------------------------------------------------ walk-forward --
-
-def walk_forward_nn(panel: pd.DataFrame, target: str, horizon: int,
-                    min_train: int, refit_every: int = 21) -> pd.Series:
+def walk_forward_nn(
+    panel: pd.DataFrame,
+    target: str,
+    horizon: int,
+    min_train: int,
+    refit_every: int = 21,
+) -> pd.Series:
     df = panel.dropna(subset=[target] + NN_FEATURES)
     n = len(df)
     if n < min_train + 30:
-        sys.exit(f"only {n} usable rows after feature dropna; "
-                 f"lower --min-train or check surface feature coverage")
+        sys.exit(
+            f"only {n} usable rows after feature dropna; "
+            f"lower --min-train or check surface feature coverage"
+        )
     anchor_col = "rv_h" if target == "rv_fwd" else "iv30"
     preds = np.full(n, np.nan)
     ens = NNEnsemble()
@@ -174,19 +175,19 @@ def walk_forward_nn(panel: pd.DataFrame, target: str, horizon: int,
         if (i - min_train) % refit_every == 0:
             tr = df.iloc[: i - horizon]
             X = design_matrix(tr)
-            ratio = (np.clip(tr[target].to_numpy(float), 1e-4, None)
-                     / np.clip(tr[anchor_col].to_numpy(float), 1e-4, None))
+            ratio = np.clip(tr[target].to_numpy(float), 1e-4, None) / np.clip(
+                tr[anchor_col].to_numpy(float), 1e-4, None
+            )
             y_log = np.log(ratio)
             ens.fit(X, y_log)
-            print(f"[nn] refit at {df.index[i].date()} on {len(tr)} rows",
-                  file=sys.stderr)
+            print(
+                f"[nn] refit at {df.index[i].date()} on {len(tr)} rows", file=sys.stderr
+            )
         row = df.iloc[[i]]
         anchor = float(np.clip(row[anchor_col].iloc[0], 1e-4, None))
         preds[i] = anchor * np.exp(ens.predict(design_matrix(row))[0])
     return pd.Series(preds, index=df.index, name="nn").iloc[min_train:]
 
-
-# --------------------------------------------------------------------- cli --
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -197,9 +198,11 @@ def main() -> None:
     args = ap.parse_args()
 
     panel = build_nn_panel(args.symbol, args.horizon)
-    print(f"[nn] panel: {len(panel)} days, "
-          f"surface features present on "
-          f"{panel['rho_front'].notna().mean():.0%} of days")
+    print(
+        f"[nn] panel: {len(panel)} days, "
+        f"surface features present on "
+        f"{panel['rho_front'].notna().mean():.0%} of days"
+    )
 
     base = walk_forward(panel, args.target, args.horizon, args.min_train)
     nn_pred = walk_forward_nn(panel, args.target, args.horizon, args.min_train)
@@ -212,25 +215,31 @@ def main() -> None:
     rows = []
     for m in ["persistence", "ar1", "har", "har_x", "nn"]:
         e = res[m].to_numpy() - a
-        row = dict(model=m, rmse=float(np.sqrt(np.nanmean(e ** 2))),
-                   mae=float(np.nanmean(np.abs(e))),
-                   qlike=qlike(a, res[m].to_numpy()))
+        row = dict(
+            model=m,
+            rmse=float(np.sqrt(np.nanmean(e**2))),
+            mae=float(np.nanmean(np.abs(e))),
+            qlike=qlike(a, res[m].to_numpy()),
+        )
         if m != "persistence":
             row["dm_vs_pers"], row["p_pers"] = dm_test(e, e_pers, args.horizon)
         if m == "nn":
             row["dm_vs_harx"], row["p_harx"] = dm_test(e, e_harx, args.horizon)
         rows.append(row)
     tbl = pd.DataFrame(rows).set_index("model")
-    print(f"\n== {args.symbol}  target: {args.target}  h: {args.horizon}d  "
-          f"oos: {len(res)}  ({res['date'].min().date()} -> "
-          f"{res['date'].max().date()}) ==")
+    print(
+        f"\n== {args.symbol}  target: {args.target}  h: {args.horizon}d  "
+        f"oos: {len(res)}  ({res['date'].min().date()} -> "
+        f"{res['date'].max().date()}) =="
+    )
     print(tbl.to_string(float_format=lambda x: f"{x:.4f}"))
     print("(negative dm with small p => row model beats column benchmark)")
 
     out_dir = DATA_ROOT / "parquet" / "forecasts"
     out_dir.mkdir(parents=True, exist_ok=True)
-    res.to_parquet(out_dir / f"{args.symbol}_{args.target}_h{args.horizon}_nn.parquet",
-                   index=False)
+    res.to_parquet(
+        out_dir / f"{args.symbol}_{args.target}_h{args.horizon}_nn.parquet", index=False
+    )
 
 
 if __name__ == "__main__":
